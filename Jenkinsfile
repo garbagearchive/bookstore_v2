@@ -2,53 +2,74 @@ pipeline {
     agent any
 
     environment {
-        DEPLOY_PATH = 'C:\\deploy\\bookstore'
-        JAR_NAME = 'basic_bookstore_spring-0.0.1-SNAPSHOT.jar' // sửa theo đúng tên file jar thực tế sau khi build
+        JAR_NAME = 'bookstore-0.0.1-SNAPSHOT.jar'
+        DEPLOY_DIR = 'C:\\deploy\\springboot\\bookstore'
     }
 
     stages {
+
         stage('Clone') {
             steps {
-                echo 'Cloning project from GitHub...'
-                git branch: 'main', url: 'https://github.com/garbagearchive/basic_bookstore_spring.git'
+                echo 'Cloning source code...'
+                git branch: 'main', url: 'https://github.com/garbagearchive/bookstore_v2'
+            }
+        }
+
+        stage('Clean') {
+            steps {
+                echo 'Cleaning previous builds...'
+                bat 'mvn clean'
+            }
+        }
+
+        stage('Restore Dependencies') {
+            steps {
+                echo 'Downloading dependencies...'
+                bat 'mvn dependency:resolve'
             }
         }
 
         stage('Build') {
             steps {
-                echo 'Building with Maven...'
-                dir('bookstore') {
-                    bat 'mvn clean package -DskipTests'
-                }
+                echo 'Building the Spring Boot project...'
+                bat 'mvn package -DskipTests'
             }
         }
 
         stage('Test') {
             steps {
                 echo 'Running tests...'
-                dir('bookstore') {
-                    bat 'mvn test'
-                }
+                bat 'mvn test'
             }
         }
 
-        stage('Copy JAR') {
+        stage('Publish') {
             steps {
-                echo 'Copying JAR to deploy folder...'
-                bat """
-                    if not exist %DEPLOY_PATH% mkdir %DEPLOY_PATH%
-                    copy /Y bookstore\\target\\%JAR_NAME% %DEPLOY_PATH%\\%JAR_NAME%
-                """
+                echo 'Copy JAR to deploy folder...'
+
+                // Tạo thư mục deploy nếu chưa có
+                bat '''
+                if not exist "%DEPLOY_DIR%" (
+                    mkdir "%DEPLOY_DIR%"
+                )
+                xcopy /Y /I /R /E "target\\%JAR_NAME%" "%DEPLOY_DIR%"
+                '''
             }
         }
 
-        stage('Restart App') {
+        stage('Run App') {
             steps {
-                echo 'Restarting app...'
-                bat """
-                    for /f "tokens=5" %%a in ('netstat -aon ^| findstr :8080 ^| findstr LISTENING') do taskkill /F /PID %%a
-                    start "" java -jar %DEPLOY_PATH%\\%JAR_NAME%
-                """
+                echo 'Starting Spring Boot application...'
+
+                // Dừng tiến trình cũ nếu đang chạy
+                bat '''
+                FOR /F "tokens=5" %%P IN ('netstat -aon ^| find ":8080" ^| find "LISTENING"') DO taskkill /F /PID %%P
+                '''
+
+                // Chạy ứng dụng (background)
+                bat '''
+                start "" java -jar "%DEPLOY_DIR%\\%JAR_NAME%"
+                '''
             }
         }
     }
